@@ -18,18 +18,24 @@ from dicompyler import guiutil, util
 def import_plugins(userpath=None):
     """Find and import available plugins."""
 
-    # Get the base plugin path
+    # Get the base and extra plugin path
     basepath = util.GetBasePluginsPath('')
+    extrapath = util.GetExtraPluginsPath('')
+ 
     # Get the user plugin path if it has not been set
     if (userpath == None):
         datapath = guiutil.get_data_dir()
         userpath = os.path.join(datapath, 'plugins')
-    # Get the list of possible plugins from both paths
+    # Get the list of possible plugins from below paths
     possibleplugins = []
     for i in os.listdir(userpath):
         possibleplugins.append({'plugin': i, 'location': 'user'})
     for i in os.listdir(basepath):
         possibleplugins.append({'plugin': i, 'location': 'base'})
+        
+    for i in os.listdir(extrapath):
+        possibleplugins.append({'plugin': i, 'location': 'extra'})
+            
 
     modules = []
     plugins = []
@@ -41,7 +47,7 @@ def import_plugins(userpath=None):
                 modules.append(module)
                 try:
                     f, filename, description = \
-                            imp.find_module(module, [userpath, basepath])
+                            imp.find_module(module, [userpath, basepath, extrapath])
                 except ImportError:
                     # Not able to find module so pass
                     pass

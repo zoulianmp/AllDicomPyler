@@ -366,7 +366,8 @@ class DicomParser:
 
                         # Add each plane to the planes dictionary of the current ROI
                         if plane.has_key('geometricType'):
-                            z = ('%.2f' % plane['contourData'][0][2]).replace('-0','0')
+                          #  z = ('%.2f' % plane['contourData'][0][2]).replace('-0','0')
+                            z = '%.1f' % round(plane['contourData'][0][2],1) #Modified for Xio 4.6.4
                             if not planes.has_key(z):
                                 planes[z] = []
                             planes[z].append(plane)

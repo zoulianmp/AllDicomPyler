@@ -428,7 +428,7 @@ class plugin2DView(wx.Panel):
 
             # Draw the structures if present
             imdata = self.images[self.imagenum-1].GetImageData()
-            self.z = '%.2f' % imdata['position'][2]
+            self.z = '%.1f' % round(imdata['position'][2],1) #modified for xio 4.64
 
             # Determine whether the patient is prone or supine
             if 'p' in imdata['patientposition'].lower():
