@@ -13,8 +13,8 @@ from matplotlib.path import Path
 
 import numpy.ma as ma
 import numpy as np
-#from dicompyler import dvhdata
-import dvhdata
+from dicompyler import dvhdata
+#import dvhdata
 #import guiutil, util
 
 def pluginProperties():

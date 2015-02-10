@@ -12,8 +12,8 @@ import wx
 from wx.xrc import XmlResource, XRCCTRL, XRCID
 from wx.lib.pubsub import Publisher as pub
 import os.path, threading
-#from dicompyler import guiutil, util
-import guiutil, util
+from dicompyler import guiutil, util
+#import guiutil, util
 
 def pluginProperties():
     """Properties of the plugin."""

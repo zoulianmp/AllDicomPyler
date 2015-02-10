@@ -11,11 +11,11 @@ Switch the Grid Frame Offset Vector between Type A/B(Relative/Absolute).
 #Requires wxPython, pyDicom, numpy, dicompyler.
 import wx
 from   wx.lib.pubsub import Publisher as pub
-import dicom
+import pydicom
 import os
 import numpy as np
-#from dicompyler import guiutil, util
-import guiutil, util
+from dicompyler import guiutil, util
+#import guiutil, util
 import logging
 logger = logging.getLogger('dicompyler.gfovswitch')
 

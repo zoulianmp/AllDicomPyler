@@ -13,8 +13,8 @@ from wx.lib.pubsub import Publisher as pub
 #import numpy.ma as ma
 #import numpy as np
 #from dicompyler import guiutil, util
-#from dicompyler import dvhdata
-import dvhdata
+from dicompyler import dvhdata
+#import dvhdata
 #from dicompyler.dicomparser import DicomParser as dp
 
 def pluginProperties():

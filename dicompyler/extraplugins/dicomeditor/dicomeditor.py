@@ -13,7 +13,7 @@ from wx.xrc import XmlResource, XRCCTRL, XRCID
 from wx.lib.pubsub import Publisher as pub
 from wx.gizmos import TreeListCtrl as tlc
 from dicompyler import guiutil, util
-import dicom
+import pydicom as dicom
 
 def pluginProperties():
     """Properties of the plugin."""

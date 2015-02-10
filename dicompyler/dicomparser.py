@@ -11,7 +11,7 @@
 import logging
 logger = logging.getLogger('dicompyler.dicomparser')
 import numpy as np
-import dicom
+import pydicom as dicom
 import random
 from PIL import Image
 from math import pow, sqrt

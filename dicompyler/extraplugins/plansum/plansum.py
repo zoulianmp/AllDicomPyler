@@ -1,5 +1,5 @@
 try:
-    import dicomgui, guiutil
+    from dicompyler import dicomgui, guiutil
 except ImportError:
     #Running as __main__, not as a plugin
     pass
@@ -7,7 +7,8 @@ except ImportError:
 import wx
 from wx.lib.pubsub import Publisher as pub
 import numpy as np
-import dicom
+import pydicom as dicom
+
 import matplotlib.mlab as mlab
 import numpy.testing as npt
     
