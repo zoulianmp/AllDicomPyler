@@ -2,8 +2,8 @@
 # -*- coding: ISO-8859-1 -*-
 # 2dview.py
 """dicompyler plugin that displays images, structures and dose in 2D planes."""
-# Copyright (c) 2009-2011 Aditya Panchal
-# This file is part of dicompyler, relased under a BSD license.
+# Copyright (c) 2009-2012 Aditya Panchal
+# This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
 #    available at http://code.google.com/p/dicompyler/
 #
@@ -23,7 +23,7 @@ def pluginProperties():
     props['name'] = '2D View'
     props['description'] = "Display image, structure and dose data in 2D"
     props['author'] = 'Aditya Panchal'
-    props['version'] = 0.4
+    props['version'] = "0.4.2"
     props['plugin_type'] = 'main'
     props['plugin_version'] = 1
     props['min_dicom'] = ['images']
@@ -38,8 +38,6 @@ def pluginLoader(parent):
     res = XmlResource(util.GetBasePluginsPath('2dview.xrc'))
 
     panel2DView = res.LoadPanel(parent, 'plugin2DView')
-    
-    print type(panel2DView)
     panel2DView.Init(res)
 
     return panel2DView
@@ -69,26 +67,28 @@ class plugin2DView(wx.Panel):
         self.pan = [0, 0]
         self.bwidth = 0
         self.bheight = 0
-        self.mousepos = (-10000, -10000)
+        self.xpos = 0
+        self.ypos = 0
+        self.mousepos = wx.Point(-10000, -10000)
         self.mouse_in_window = False
         self.isodose_line_style = 'Solid'
         self.isodose_fill_opacity = 25
         self.structure_line_style = 'Solid'
         self.structure_fill_opacity = 50
+        self.plugins = {}
 
         # Setup toolbar controls
         if guiutil.IsGtk():
-            import gtk
-            zoominbmp = wx.ArtProvider_GetBitmap(gtk.STOCK_ZOOM_IN, wx.ART_OTHER, (24, 24))
-            zoomoutbmp = wx.ArtProvider_GetBitmap(gtk.STOCK_ZOOM_OUT, wx.ART_OTHER, (24, 24))
             drawingstyles = ['Solid', 'Transparent', 'Dot']
         else:
-            zoominbmp = wx.Bitmap(util.GetResourcePath('magnifier_zoom_in.png'))
-            zoomoutbmp = wx.Bitmap(util.GetResourcePath('magnifier_zoom_out.png'))
             drawingstyles = ['Solid', 'Transparent', 'Dot', 'Dash', 'Dot Dash']
+        zoominbmp = wx.Bitmap(util.GetResourcePath('magnifier_zoom_in.png'))
+        zoomoutbmp = wx.Bitmap(util.GetResourcePath('magnifier_zoom_out.png'))
+        toolsbmp = wx.Bitmap(util.GetResourcePath('cog.png'))
         self.tools = []
         self.tools.append({'label':"Zoom In", 'bmp':zoominbmp, 'shortHelp':"Zoom In", 'eventhandler':self.OnZoomIn})
         self.tools.append({'label':"Zoom Out", 'bmp':zoomoutbmp, 'shortHelp':"Zoom Out", 'eventhandler':self.OnZoomOut})
+        self.tools.append({'label':"Tools", 'bmp':toolsbmp, 'shortHelp':"Tools", 'eventhandler':self.OnToolsMenu})
 
         # Set up preferences
         self.preferences = [
@@ -121,7 +121,9 @@ class plugin2DView(wx.Panel):
         pub.subscribe(self.OnUpdatePatient, 'patient.updated.parsed_data')
         pub.subscribe(self.OnStructureCheck, 'structures.checked')
         pub.subscribe(self.OnIsodoseCheck, 'isodoses.checked')
+        pub.subscribe(self.OnRefresh, '2dview.refresh')
         pub.subscribe(self.OnDrawingPrefsChange, '2dview.drawingprefs')
+        pub.subscribe(self.OnPluginLoaded, 'plugin.loaded.2dview')
         pub.sendMessage('preferences.requested.values', '2dview.drawingprefs')
 
     def OnUpdatePatient(self, msg):
@@ -132,15 +134,18 @@ class plugin2DView(wx.Panel):
         self.dosepixlut = ([], [])
         if msg.data.has_key('images'):
             self.images = msg.data['images']
-            # Set the first image to the middle of the series
-            self.imagenum = len(self.images)/2
+            self.imagenum = 1
+            # If more than one image, set first image to middle of the series
+            if (len(self.images) > 1):
+                self.imagenum = len(self.images)/2
             image = self.images[self.imagenum-1]
             self.structurepixlut = image.GetPatientToPixelLUT()
             # Determine the default window and level of the series
             self.window, self.level = image.GetDefaultImageWindowLevel()
             # Dose display depends on whether we have images loaded or not
             self.isodoses = {}
-            if msg.data.has_key('dose'):
+            if (msg.data.has_key('dose') and \
+                ("PixelData" in msg.data['dose'].ds)):
                 self.dose = msg.data['dose']
                 self.dosedata = self.dose.GetDoseData()
                 # First get the dose grid LUT
@@ -173,7 +178,6 @@ class plugin2DView(wx.Panel):
         self.Bind(wx.EVT_RIGHT_UP, self.OnMouseUp)
         self.Bind(wx.EVT_ENTER_WINDOW, self.OnMouseEnter)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.OnMouseLeave)
-        self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
         pub.subscribe(self.OnKeyDown, 'main.key_down')
         pub.subscribe(self.OnMouseWheel, 'main.mousewheel')
 
@@ -190,6 +194,7 @@ class plugin2DView(wx.Panel):
         self.Unbind(wx.EVT_MOTION)
         pub.unsubscribe(self.OnKeyDown)
         pub.unsubscribe(self.OnMouseWheel)
+        pub.unsubscribe(self.OnRefresh)
 
     def OnDestroy(self, evt):
         """Unbind to all events before the plugin is destroyed."""
@@ -198,6 +203,7 @@ class plugin2DView(wx.Panel):
         pub.unsubscribe(self.OnStructureCheck)
         pub.unsubscribe(self.OnIsodoseCheck)
         pub.unsubscribe(self.OnDrawingPrefsChange)
+        pub.unsubscribe(self.OnPluginLoaded)
         self.OnUnfocus()
 
     def OnStructureCheck(self, msg):
@@ -227,12 +233,33 @@ class plugin2DView(wx.Panel):
             self.structure_fill_opacity = msg.data
         self.Refresh()
 
+    def OnPluginLoaded(self, msg):
+        """When a 2D View-dependent plugin is loaded, initialize the plugin."""
+
+        name = msg.data.pluginProperties()['name']
+        self.plugins[name] = msg.data.plugin(self)
+
     def DrawStructure(self, structure, gc, position, prone, feetfirst):
         """Draw the given structure on the panel."""
 
+        # Create an indexing array of z positions of the structure data
+        # to compare with the image z position
+        if not "zarray" in structure:
+            structure['zarray'] = np.array(
+                    structure['planes'].keys(), dtype=np.float32)
+            structure['zkeys'] = structure['planes'].keys()
+
+        # Return if there are no z positions in the structure data
+        if not len(structure['zarray']):
+            return
+
+        # Determine the closest z plane to the given position
+        zmin = np.amin(np.abs(structure['zarray'] - float(position)))
+        index = np.argmin(np.abs(structure['zarray'] - float(position)))
+
         # Draw the structure only if the structure has contours
-        # on the current image position
-        if structure['planes'].has_key(position):
+        # on the closest plane, within a threshold
+        if (zmin < 0.5):
             # Set the color of the contour
             color = wx.Colour(structure['color'][0], structure['color'][1],
                 structure['color'][2], int(self.structure_fill_opacity*255/100))
@@ -245,7 +272,7 @@ class plugin2DView(wx.Panel):
                 style=self.GetLineDrawingStyle(self.structure_line_style)))
             # Create the path for the contour
             path = gc.CreatePath()
-            for contour in structure['planes'][position]:
+            for contour in structure['planes'][structure['zkeys'][index]]:
                 if (contour['geometricType'] == u"CLOSED_PLANAR"):
                     # Convert the structure data to pixel data
                     pixeldata = self.GetContourPixelData(
@@ -339,16 +366,22 @@ class plugin2DView(wx.Panel):
         # Determine if the patient is prone or supine
         imdata = self.images[self.imagenum-1].GetImageData()
         prone = -1 if 'p' in imdata['patientposition'].lower() else 1
+        feetfirst = -1 if 'ff' in imdata['patientposition'].lower() else 1
         # Get the pixel spacing
         spacing = imdata['pixelspacing']
 
         # Transpose the dose grid LUT onto the image grid LUT
-        x = (np.array(doselut[0]) - pixlut[0][0]) * prone / spacing[0]
+        x = (np.array(doselut[0]) - pixlut[0][0]) * prone * feetfirst / spacing[0]
         y = (np.array(doselut[1]) - pixlut[1][0]) * prone / spacing[1]
         return (x, y)
 
     def OnPaint(self, evt):
         """Update the panel when it needs to be refreshed."""
+
+        # Bind motion event when the panel has been painted to avoid a blank
+        # image on Windows if a file is loaded too quickly before the plugin
+        # is initialized
+        self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
 
         # Special case for Windows to account for flickering
         # if and only if images are loaded
@@ -386,19 +419,16 @@ class plugin2DView(wx.Panel):
             self.bwidth, self.bheight = image.GetSize()
 
             # Center the image
-            gc.Translate(self.pan[0]+(width-self.bwidth*self.zoom)/(2*self.zoom),
-                         self.pan[1]+(height-self.bheight*self.zoom)/(2*self.zoom))
+            transx = self.pan[0]+(width-self.bwidth*self.zoom)/(2*self.zoom)
+            transy = self.pan[1]+(height-self.bheight*self.zoom)/(2*self.zoom)
+            gc.Translate(transx, transy)
             gc.DrawBitmap(bmp, 0, 0, self.bwidth, self.bheight)
             gc.SetBrush(wx.Brush(wx.Colour(0, 0, 255, 30)))
             gc.SetPen(wx.Pen(wx.Colour(0, 0, 255, 30)))
 
             # Draw the structures if present
             imdata = self.images[self.imagenum-1].GetImageData()
-            
-            
-            #self.z = '%.2f' % imdata['position'][2] #dicompyler Primer
-             
-            self.z = '%.1f' % round(imdata['position'][2],1)  #modified for xio4.6.4
+            self.z = '%.2f' % imdata['position'][2]
 
             # Determine whether the patient is prone or supine
             if 'p' in imdata['patientposition'].lower():
@@ -454,11 +484,30 @@ class plugin2DView(wx.Panel):
             te = gc.GetFullTextExtent(impatpos)
             gc.DrawText(impatpos, width-te[0]-7, height-17)
 
+            # Send message with the current image number and various properties
+            pub.sendMessage('2dview.updated.image',
+                            {'number':self.imagenum,    # slice number
+                             'z':self.z,                # slice location
+                             'window':self.window,      # current window value
+                             'level':self.level,        # curent level value
+                             'gc':gc,                   # wx.GraphicsContext
+                             'scale':self.zoom,         # current zoom level
+                             'transx':transx,           # current x translation
+                             'transy':transy,           # current y translation
+                             'imdata':imdata,           # image data dictionary
+                             'patientpixlut':self.structurepixlut})
+                                                        # pat to pixel coord LUT
+
     def OnSize(self, evt):
         """Refresh the view when the size of the panel changes."""
 
         self.Refresh()
         evt.Skip()
+
+    def OnRefresh(self, msg):
+        """Refresh the view when it is requested by a plugin."""
+
+        self.Refresh()
 
     def OnUpdatePositionValues(self, evt=None):
         """Update the current position and value(s) of the mouse cursor."""
@@ -478,6 +527,10 @@ class plugin2DView(wx.Panel):
                 (2*self.zoom))
         ypos = int(pos[1]/self.zoom-self.pan[1]-(h-self.bheight*self.zoom)/
                 (2*self.zoom))
+
+        # Save the coordinates so they can be used by the 2dview plugins
+        self.xpos = xpos
+        self.ypos = ypos
 
         # Set an empty text placeholder if the coordinates are not within range
         text = ""
@@ -592,6 +645,17 @@ class plugin2DView(wx.Panel):
         """Get the initial position of the mouse when dragging."""
 
         self.mousepos = evt.GetPosition()
+        # Publish the coordinates of the cursor position based
+        # on the scaled image size range
+        if ((0 <= self.xpos < len(self.structurepixlut[0])) and
+            (0 <= self.ypos < len(self.structurepixlut[1])) and
+            (self.mouse_in_window) and
+            (evt.LeftDown())):
+            pub.sendMessage('2dview.mousedown',
+                        {'x':self.xpos,
+                         'y':self.ypos,
+                         'xmm':self.structurepixlut[0][self.xpos],
+                         'ymm':self.structurepixlut[1][self.ypos]})
 
     def OnMouseUp(self, evt):
         """Reset the cursor when the mouse is released."""
@@ -643,3 +707,20 @@ class plugin2DView(wx.Panel):
         self.window -= delta[0]
         self.level -= delta[1]
         self.Refresh()
+
+    def OnToolsMenu(self, evt):
+        """Show a context menu for the loaded 2D View plugins when the
+            'Tools' toolbar item is selected."""
+
+        menu = wx.Menu()
+        if len(self.plugins):
+            for name, p in self.plugins.iteritems():
+                id = wx.NewId()
+                self.Bind(wx.EVT_MENU, p.pluginMenu, id=id)
+                menu.Append(id, name)
+        else:
+            id = wx.NewId()
+            menu.Append(id, "No tools found")
+            menu.Enable(id, False)
+        self.PopupMenu(menu)
+        menu.Destroy()

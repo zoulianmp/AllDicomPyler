@@ -2,9 +2,9 @@
 # -*- coding: ISO-8859-1 -*-
 # dicomgui.py
 """Class that imports and returns DICOM data via a wxPython GUI dialog."""
-# Copyright (c) 2009-2011 Aditya Panchal
+# Copyright (c) 2009-2012 Aditya Panchal
 # Copyright (c) 2009 Roy Keyes
-# This file is part of dicompyler, relased under a BSD license.
+# This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
 #    available at http://code.google.com/p/dicompyler/
 #
@@ -31,8 +31,9 @@ def ImportDicom(parent):
     # Show the dialog and return the result
     if (dlgDicomImporter.ShowModal() == wx.ID_OK):
         value = dlgDicomImporter.GetPatient()
+        pub.sendMessage('patient.updated.raw_data', value)
     else:
-        value = None
+        value = {}
     # Block until the thread is done before destroying the dialog
     if dlgDicomImporter:
         dlgDicomImporter.t.join()
@@ -175,6 +176,12 @@ class DicomImporterDialog(wx.Dialog):
         if not guiutil.IsGtk():
             self.EnableRxDose(False)
 
+        # If a previous search thread exists, block until it is done before
+        # starting a new thread
+        if (hasattr(self, 't')):
+            self.t.join()
+            del self.t
+
         self.t=threading.Thread(target=self.DirectorySearchThread,
             args=(self, self.path, self.import_search_subfolders,
             self.SetThreadStatus, self.OnUpdateProgress,
@@ -274,6 +281,7 @@ class DicomImporterDialog(wx.Dialog):
                             plan['filename'] = files[n]
                             plan['series'] = dp.ds.SeriesInstanceUID
                             plan['referenceframe'] = dp.GetFrameofReferenceUID()
+                            plan['beams'] = dp.GetReferencedBeamsInFraction()
                             plan['rtss'] = dp.GetReferencedStructureSet()
                             patients[h]['plans'][plan['id']] = plan
                         # Create each RT Dose
@@ -285,6 +293,9 @@ class DicomImporterDialog(wx.Dialog):
                             dose['filename'] = files[n]
                             dose['referenceframe'] = dp.GetFrameofReferenceUID()
                             dose['hasdvh'] = dp.HasDVHs()
+                            dose['hasgrid'] = "PixelData" in dp.ds
+                            dose['summationtype'] = dp.ds.DoseSummationType
+                            dose['beam'] = dp.GetReferencedBeamNumber()
                             dose['rtss'] = dp.GetReferencedStructureSet()
                             dose['rtplan'] = dp.GetReferencedRTPlan()
                             patients[h]['doses'][dose['id']] = dose
@@ -456,7 +467,10 @@ class DicomImporterDialog(wx.Dialog):
             if patient.has_key('plans'):
                 for planid, plan in patient['plans'].iteritems():
                     foundstructure = False
-                    name = 'RT Plan: ' + plan['label'] + ' (' + plan['name'] + ')'
+                    planname = ' (' + plan['name'] + ')' if len(plan['name']) else ""
+                    rxdose = plan['rxdose'] if plan['rxdose'] > 0 else "Unknown"
+                    name = 'RT Plan: ' + plan['label'] + planname + \
+                        ' - Dose: ' + str(rxdose) + ' cGy'
                     if patient.has_key('structures'):
                         for structureid, structure in patient['structures'].iteritems():
                             foundstructure = False
@@ -490,19 +504,43 @@ class DicomImporterDialog(wx.Dialog):
                             foundplan = False
                             if (planid == dose['rtplan']):
                                 foundplan = True
-                                if dose['hasdvh']:
-                                    name = 'RT Dose with DVH'
+                                rxdose = None
+                                if dose['hasgrid']:
+                                    if dose['hasdvh']:
+                                        name = 'RT Dose with DVH'
+                                    else:
+                                        name = 'RT Dose without DVH'
                                 else:
-                                    name = 'RT Dose without DVH'
+                                    if dose['hasdvh']:
+                                        name = 'RT Dose without Dose Grid (DVH only)'
+                                    else:
+                                        name = 'RT Dose without Dose Grid or DVH'
+                                if (dose['summationtype'] == "BEAM"):
+                                    name += " (Beam " + str(dose['beam']) + ": "
+                                    if dose['beam'] in plan['beams']:
+                                        b = plan['beams'][dose['beam']]
+                                        name += b['name']
+                                        if len(b['description']):
+                                            name += " - " + b['description']
+                                        name += ")"
+                                        if "dose" in b:
+                                            name += " - Dose: " + str(int(b['dose'])) + " cGy"
+                                            rxdose = int(b['dose'])
                                 dose['treeid'] = self.tcPatients.AppendItem(plan['treeid'], name, 6)
                                 filearray = [dose['filename']]
-                                self.EnableItemSelection(patient, dose, filearray)
+                                self.EnableItemSelection(patient, dose, filearray, rxdose)
                     # If no plans were found, add the dose to the structure/study instead
                     if not foundplan:
-                        if dose['hasdvh']:
-                            name = 'RT Dose with DVH'
+                        if dose['hasgrid']:
+                            if dose['hasdvh']:
+                                name = 'RT Dose with DVH'
+                            else:
+                                name = 'RT Dose without DVH'
                         else:
-                            name = 'RT Dose without DVH'
+                            if dose['hasdvh']:
+                                name = 'RT Dose without Dose Grid (DVH only)'
+                            else:
+                                name = 'RT Dose without Dose Grid or DVH'
                         foundstructure = False
                         if patient.has_key('structures'):
                             for structureid, structure in patient['structures'].iteritems():
@@ -627,10 +665,10 @@ class DicomImporterDialog(wx.Dialog):
             data = self.tcPatients.GetPyData(item)
             self.btnSelect.Enable()
             rxdose = 0
+            parent = self.tcPatients.GetItemParent(item)
             if data.has_key('rxdose'):
                 rxdose = data['rxdose']
             else:
-                parent = self.tcPatients.GetItemParent(item)
                 parentdata = self.tcPatients.GetPyData(parent)
                 if not (parentdata == None):
                     if parentdata.has_key('rxdose'):
@@ -638,10 +676,9 @@ class DicomImporterDialog(wx.Dialog):
             # Show the rxdose text box if no rxdose was found
             # and if it is an RT plan or RT dose file
             self.txtRxDose.SetValue(rxdose)
-            if (rxdose == 0):
-                if (self.tcPatients.GetItemText(item).startswith('RT Plan') or
-                    self.tcPatients.GetItemText(parent).startswith('RT Plan')):
-                    self.EnableRxDose(True)
+            if (self.tcPatients.GetItemText(item).startswith('RT Plan') or
+                self.tcPatients.GetItemText(parent).startswith('RT Plan')):
+                self.EnableRxDose(True)
 
     def EnableRxDose(self, value):
         """Show or hide the prescription dose message."""

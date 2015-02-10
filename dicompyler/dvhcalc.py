@@ -2,7 +2,7 @@
 # -*- coding: ISO-8859-1 -*-
 # dvhcalc.py
 """Calculate dose volume histogram (DVH) from DICOM RT Structure / Dose data."""
-# Copyright (c) 2011 Aditya Panchal
+# Copyright (c) 2011-2012 Aditya Panchal
 # Copyright (c) 2010 Roy Keyes
 # This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
@@ -54,13 +54,14 @@ def calculate_dvh(structure, dose, limit=None, callback=None):
     x, y = x.flatten(), y.flatten()
     dosegridpoints = np.vstack((x,y)).T
 
-    # Get the dose and image data information
-    dd = dose.GetDoseData()
-    id = dose.GetImageData()
-
     # Create an empty array of bins to store the histogram in cGy
-    # only if the structure has contour data
-    if len(sPlanes):
+    # only if the structure has contour data or the dose grid exists
+    if ((len(sPlanes)) and ("PixelData" in dose.ds)):
+
+        # Get the dose and image data information
+        dd = dose.GetDoseData()
+        id = dose.GetImageData()
+
         maxdose = int(dd['dosemax'] * dd['dosegridscaling'] * 100)
         # Remove values above the limit (cGy) if specified
         if not (limit == None):

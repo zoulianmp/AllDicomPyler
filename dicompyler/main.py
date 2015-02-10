@@ -2,7 +2,7 @@
 # -*- coding: ISO-8859-1 -*-
 # main.py
 """Main file for dicompyler."""
-# Copyright (c) 2009-2011 Aditya Panchal
+# Copyright (c) 2009-2014 Aditya Panchal
 # Copyright (c) 2009 Roy Keyes
 # This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
@@ -15,11 +15,7 @@ logger.setLevel(logging.DEBUG)
 
 import os, threading
 import sys, traceback
-
-import wxversion
-wxversion.select("2.8")
 import wx
-
 from wx.xrc import *
 import wx.lib.dialogs, webbrowser
 # Uncomment line to setup pubsub for frozen targets on wxPython 2.8.11 and above
@@ -30,7 +26,7 @@ from dicompyler import dicomgui, dvhdata, dvhdoses, dvhcalc
 from dicompyler.dicomparser import DicomParser as dp
 from dicompyler import plugin, preferences
 
-__version__ = "0.4.1-1"
+__version__ = "0.4.2"
 
 class MainFrame(wx.Frame):
     def __init__(self, parent, id, title, res):
@@ -76,10 +72,12 @@ class MainFrame(wx.Frame):
             self.ch.setLevel(logging.WARNING)
             logger.addHandler(self.ch)
             pydicom_logger.addHandler(self.ch)
-        # Otherwise if frozen, send stdout/stderror to the logging system
+        # Otherwise if frozen, send stdout/stderror to /dev/null since
+        # logging the messages seems to cause instability due to recursion
         else:
-            sys.stdout = StreamWrapper(logger, logging.INFO)
-            sys.stderr = StreamWrapper(logger, logging.ERROR)
+            devnull = open(os.devnull, 'w')
+            sys.stdout = devnull
+            sys.stderr = devnull
 
         # Set the window size
         if guiutil.IsMac():
@@ -156,6 +154,12 @@ class MainFrame(wx.Frame):
         self.menuShowLogs = menuMain.FindItemById(XRCID('menuShowLogs')).GetMenu()
         self.menuPlugins = menuMain.FindItemById(XRCID('menuPluginManager')).GetMenu()
 
+        # Setup Import menu
+        self.menuImport = menuMain.FindItemById(XRCID('menuImportPlaceholder')).GetMenu()
+        self.menuImport.Delete(menuMain.FindItemById(XRCID('menuImportPlaceholder')).GetId())
+        self.menuImportItem = menuMain.FindItemById(XRCID('menuImport'))
+        self.menuImportItem.Enable(False)
+
         # Setup Export menu
         self.menuExport = menuMain.FindItemById(XRCID('menuExportPlaceholder')).GetMenu()
         self.menuExport.Delete(menuMain.FindItemById(XRCID('menuExportPlaceholder')).GetId())
@@ -178,11 +182,7 @@ class MainFrame(wx.Frame):
         self.toolbar = self.GetToolBar()
 
         # Setup main toolbar controls
-        if guiutil.IsGtk():
-            import gtk
-            folderbmp = wx.ArtProvider_GetBitmap(gtk.STOCK_OPEN, wx.ART_OTHER, (24, 24))
-        else:
-            folderbmp = wx.Bitmap(util.GetResourcePath('folder_user.png'))
+        folderbmp = wx.Bitmap(util.GetResourcePath('folder_user.png'))
         self.maintools = [{'label':"Open Patient", 'bmp':folderbmp,
                             'shortHelp':"Open Patient...",
                             'eventhandler':self.OnOpenPatient}]
@@ -195,6 +195,7 @@ class MainFrame(wx.Frame):
 
         # Bind interface events to the proper methods
         wx.EVT_CHOICE(self, XRCID('choiceStructure'), self.OnStructureSelect)
+        self.Bind(wx.EVT_ACTIVATE, self.OnActivate)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnPageChanged)
         # Events to work around a focus bug in Windows
@@ -233,7 +234,6 @@ class MainFrame(wx.Frame):
             self.prefmgr = preferences.PreferencesManager(
                 parent = None, appname = 'dicompyler', name = 'Options')
         sp = wx.StandardPaths.Get()
-
         self.generalpreftemplate = [
             {'DICOM Import Settings':
                 [{'name':'Import Location',
@@ -243,7 +243,7 @@ class MainFrame(wx.Frame):
              'callback':'general.dicom.import_location_setting'},
                 {'name':'Default Location',
                  'type':'directory',
-                 'default':unicode(sp.GetDocumentsDir()),
+              'default':unicode(sp.GetDocumentsDir()),
              'callback':'general.dicom.import_location'}]
             },
             {'Plugin Settings':
@@ -269,6 +269,9 @@ class MainFrame(wx.Frame):
         self.preftemplate = [{'General':self.generalpreftemplate}]
         pub.sendMessage('preferences.updated.template', self.preftemplate)
 
+        # Initialize variables
+        self.ptdata = {}
+
         # Set up pubsub
         pub.subscribe(self.OnLoadPatientData, 'patient.updated.raw_data')
         pub.subscribe(self.OnStructureCheck, 'colorcheckbox.checked.structure')
@@ -278,6 +281,7 @@ class MainFrame(wx.Frame):
         pub.subscribe(self.OnUpdatePlugins, 'general.plugins.user_plugins_location')
         pub.subscribe(self.OnUpdatePreferences, 'general')
         pub.subscribe(self.OnUpdateStatusBar, 'main.update_statusbar')
+        pub.subscribe(self.OnOpenPatient, 'dicomgui.show')
 
         # Send a message to the logging system to turn on/off detailed logging
         pub.sendMessage('preferences.requested.value',
@@ -290,18 +294,31 @@ class MainFrame(wx.Frame):
 
         # Load and initialize plugins
         self.plugins = []
+        self.pluginsDisabled = []
         pub.sendMessage('preferences.requested.value',
                         'general.plugins.user_plugins_location')
         pub.sendMessage('preferences.requested.value',
                         'general.calculation.dvh_recalc')
+        pub.sendMessage('preferences.requested.value',
+                        'general.plugins.disabled_list')
+        pub.sendMessage('preferences.requested.values',
+                        'general.window')
 
 ########################### Patient Loading Functions ##########################
 
     def OnOpenPatient(self, evt):
         """Load and show the Dicom RT Importer dialog box."""
 
-        self.ptdata = dicomgui.ImportDicom(self)
-        if not (self.ptdata == None):
+        dicomgui.ImportDicom(self)
+
+    def OnLoadPatientData(self, msg):
+        """Update and load the patient data."""
+
+        # Skip loading if the dataset is empty or if the dataset is the same
+        if (not len(msg.data)) or (self.ptdata == msg.data):
+            return
+        else:
+            self.ptdata = msg.data
             # Delete the previous notebook pages
             self.notebook.DeleteAllPages()
             # Delete the previous toolbar items
@@ -323,8 +340,16 @@ class MainFrame(wx.Frame):
                 self.menuExportDict = {}
             # Reset the preferences template
             self.preftemplate = [{'General':self.generalpreftemplate}]
+            # Initialize the list of subplugins
+            subplugins = []
             # Set up the plugins for each plugin entry point of dicompyler
-            for i, p in enumerate(self.plugins):
+            for i, plugin in enumerate(self.plugins):
+                # Skip plugin if it doesn't contain the required dictionary
+                # or actually is a proper Python module
+                p = plugin['plugin']
+                if not hasattr(p, 'pluginProperties') or \
+                    (p.__name__ in self.pluginsDisabled):
+                    continue
                 props = p.pluginProperties()
                 # Only load plugin versions that are qualified
                 if (props['plugin_version'] == 1):
@@ -349,7 +374,7 @@ class MainFrame(wx.Frame):
                             plugin = p.pluginLoader(self.notebook)
                             self.notebook.AddPage(plugin, props['name'])
                         # Load the menu plugins
-                        if (props['plugin_type'] == 'menu'):
+                        elif (props['plugin_type'] == 'menu'):
                             if not len(self.menuDict):
                                 self.menuPlugins.AppendSeparator()
                             self.menuDict[100+i] = self.menuPlugins.Append(
@@ -357,26 +382,31 @@ class MainFrame(wx.Frame):
                             plugin = p.plugin(self)
                             wx.EVT_MENU(self, 100+i, plugin.pluginMenu)
                         # Load the export menu plugins
-                        if (props['plugin_type'] == 'export'):
+                        elif (props['plugin_type'] == 'export'):
                             if not len(self.menuExportDict):
                                 self.menuExportItem.Enable(True)
                             self.menuExportDict[200+i] = self.menuExport.Append(
                                                 200+i, props['menuname'])
                             plugin = p.plugin(self)
                             wx.EVT_MENU(self, 200+i, plugin.pluginMenu)
+                        # If a sub-plugin, mark it to be initialized later
+                        else:
+                            subplugins.append(p)
+                            continue
                         # Add the plugin preferences if they exist
                         if hasattr(plugin, 'preferences'):
                             self.preftemplate.append({props['name']:plugin.preferences})
             pub.sendMessage('preferences.updated.template', self.preftemplate)
-            pub.sendMessage('patient.updated.raw_data', self.ptdata)
 
-    def OnLoadPatientData(self, msg):
-        """Update and load the patient data."""
+            # Load the subplugins and notify the parent plugins
+            for s in subplugins:
+                props = s.pluginProperties()
+                msg = 'plugin.loaded.' + props['plugin_type'] + '.' +s.__name__
+                pub.sendMessage(msg, s)
 
-        ptdata = msg.data
         dlgProgress = guiutil.get_progress_dialog(self, "Loading Patient Data...")
         self.t=threading.Thread(target=self.LoadPatientDataThread,
-            args=(self, ptdata, dlgProgress.OnUpdateProgress,
+            args=(self, self.ptdata, dlgProgress.OnUpdateProgress,
             self.OnUpdatePatientData))
         self.t.start()
         dlgProgress.ShowModal()
@@ -389,26 +419,23 @@ class MainFrame(wx.Frame):
         # Call the progress function to update the gui
         wx.CallAfter(progressFunc, 0, 0, 'Processing patient data...')
         patient = {}
+
+        if not ptdata.has_key('images'):
+            patient.update(dp(ptdata.values()[0]).GetDemographics())
         if ptdata.has_key('rtss'):
             wx.CallAfter(progressFunc, 20, 100, 'Processing RT Structure Set...')
-            if not patient.has_key('id'):
-                patient = dp(ptdata['rtss']).GetDemographics()
             patient['structures'] = dp(ptdata['rtss']).GetStructures()
         if ptdata.has_key('rtplan'):
             wx.CallAfter(progressFunc, 40, 100, 'Processing RT Plan...')
-            if not patient.has_key('id'):
-                patient = dp(ptdata['rtplan']).GetDemographics()
             patient['plan'] = dp(ptdata['rtplan']).GetPlan()
         if ptdata.has_key('rtdose'):
             wx.CallAfter(progressFunc, 60, 100, 'Processing RT Dose...')
-            if not patient.has_key('id'):
-                patient = dp(ptdata['rtdose']).GetDemographics()
             patient['dvhs'] = dp(ptdata['rtdose']).GetDVHs()
             patient['dose'] = dp(ptdata['rtdose'])
         if ptdata.has_key('images'):
             wx.CallAfter(progressFunc, 80, 100, 'Processing Images...')
             if not patient.has_key('id'):
-                patient = dp(ptdata['images'][0]).GetDemographics()
+                patient.update(dp(ptdata['images'][0]).GetDemographics())
             patient['images'] = []
             for image in ptdata['images']:
                 patient['images'].append(dp(image))
@@ -427,7 +454,9 @@ class MainFrame(wx.Frame):
                 if ((not (key in patient['dvhs'].keys())) or
                     (self.dvhRecalc == 'Always Recalculate DVH')):
                     # Only calculate DVHs for structures, not applicators
-                    if structure['name'].startswith('Applicator'):
+                    # and only if the dose grid is present
+                    if ((structure['name'].startswith('Applicator')) or
+                        (not "PixelData" in patient['dose'].ds)):
                         continue
                     wx.CallAfter(progressFunc,
                                  10*i/len(patient['structures'])+90, 100,
@@ -481,8 +510,10 @@ class MainFrame(wx.Frame):
             self.dvhs = patient['dvhs']
         else:
             self.dvhs = {}
-        
-        # publish the parsed data
+
+        # Re-publish the raw data
+        pub.sendMessage('patient.updated.raw_data', self.ptdata)
+        # Publish the parsed data
         pub.sendMessage('patient.updated.parsed_data', patient)
 
     def PopulateStructures(self):
@@ -491,7 +522,7 @@ class MainFrame(wx.Frame):
         self.cclbStructures.Clear()
 
         self.structureList = {}
-        for id, structure in self.structures.iteritems():
+        for id, structure in iter(sorted(self.structures.iteritems())):
             # Only append structures, don't include applicators
             if not(structure['name'].startswith('Applicator')):
                 self.cclbStructures.Append(structure['name'], structure, structure['color'],
@@ -509,7 +540,7 @@ class MainFrame(wx.Frame):
         self.cclbIsodoses.Clear()
 
         self.isodoseList={}
-        if (has_images and len(plan)):
+        if (has_images and len(plan) and "PixelData" in dose.ds):
             dosedata = dose.GetDoseData()
             dosemax = int(dosedata['dosemax'] * dosedata['dosegridscaling'] * 10000 / plan['rxdose'])
             self.isodoses = [{'level':dosemax, 'color':wx.Colour(120, 0, 0), 'name':'Max'},
@@ -710,6 +741,17 @@ class MainFrame(wx.Frame):
                         self.fh.setLevel(logging.WARNING)
                         if not util.main_is_frozen():
                             self.ch.setLevel(logging.WARNING)
+        elif (msg.topic[1] == 'plugins') and (msg.topic[2] == 'disabled_list'):
+            self.pluginsDisabled = msg.data
+        elif (msg.topic[1] == 'window'):
+            if msg.topic[2] == 'maximized':
+                self.Maximize(msg.data)
+            elif msg.topic[2] == 'size':
+                if not self.IsMaximized():
+                    self.SetSize(tuple(msg.data))
+            elif msg.topic[2] == 'position':
+                if not self.IsMaximized():
+                    self.SetPosition(tuple(msg.data))
 
     def OnUpdatePlugins(self, msg):
         """Update the location of the user plugins and load all plugins."""
@@ -719,8 +761,37 @@ class MainFrame(wx.Frame):
         if not len(self.plugins):
             self.plugins = plugin.import_plugins(self.userpluginpath)
             self.menuDict = {}
+            self.menuImportDict = {}
             self.menuExportDict = {}
-
+            # Set up the import plugins for dicompyler
+            for i, pg in enumerate(self.plugins):
+                # Skip plugin if it doesn't contain the required dictionary
+                # or actually is a proper Python module or is disabled
+                p = pg['plugin']
+                if not hasattr(p, 'pluginProperties') or \
+                    (p.__name__ in self.pluginsDisabled):
+                    continue
+                props = p.pluginProperties()
+                # Only load plugin versions that are qualified
+                if ((props['plugin_version'] == 1) and
+                    (props['plugin_type'] == 'import')):
+                    self.menuImportItem.Enable(True)
+                    # Load the import menu plugins
+                    if not len(self.menuImportDict):
+                        self.menuImportItem.Enable(True)
+                    self.menuImportDict[300+i] = self.menuImport.Append(
+                                        300+i, props['menuname'])
+                    pi = p.plugin(self)
+                    self.Bind(wx.EVT_MENU, pi.pluginMenu, id=300+i)
+                    # If the import plugin has toolbar items, display them
+                    if hasattr(pi, 'tools'):
+                        for t, tool in enumerate(pi.tools):
+                            self.maintools.append(tool)
+                            self.toolbar.AddLabelTool(
+                                        (300+i)*10+t, tool['label'],
+                                        tool['bmp'], shortHelp=tool['shortHelp'])
+                            self.Bind(wx.EVT_TOOL, tool['eventhandler'], id=(300+i)*10+t)
+                        self.toolbar.Realize()
     def OnUpdateStatusBar(self, msg):
         """Update the status bar text."""
 
@@ -785,14 +856,14 @@ class MainFrame(wx.Frame):
     def OnPluginManager(self, evt):
         """Load and show the Plugin Manager dialog box."""
 
-        self.pm = plugin.PluginManager(self, self.plugins)
+        self.pm = plugin.PluginManager(self, self.plugins, self.pluginsDisabled)
 
     def OnAbout(self, evt):
         # First we create and fill the info object
         info = wx.AboutDialogInfo()
         info.Name = "dicompyler"
         info.Version = __version__
-        info.Copyright = u"© 2009-2011 Aditya Panchal"
+        info.Copyright = u"© 2009-2014 Aditya Panchal"
         credits = util.get_credits()
         info.Developers = credits['developers']
         info.Artists = credits['artists']
@@ -828,20 +899,29 @@ class MainFrame(wx.Frame):
         dlg.ShowModal()
         dlg.Destroy()
 
+    def OnActivate(self, evt):
+        """Show the import dialog if command-line arguments have been passed."""
+
+        # Check if a folder is provided via command-line arguments
+        if (len(sys.argv) == 2):
+            path = sys.argv[1]
+            if not os.path.isdir(path):
+                path = os.path.split(path)[0]
+            pub.sendMessage('preferences.updated.value',
+                        {'general.dicom.import_location':path})
+            sys.argv.pop()
+            self.OnOpenPatient(None)
+        evt.Skip()
+
     def OnClose(self, _):
+        pub.sendMessage('preferences.updated.value',
+                {'general.window.maximized':self.IsMaximized()})
+        if not self.IsMaximized():
+            pub.sendMessage('preferences.updated.value',
+                    {'general.window.size':tuple(self.GetSize())})
+            pub.sendMessage('preferences.updated.value',
+                    {'general.window.position':tuple(self.GetPosition())})
         self.Destroy()
-
-class StreamWrapper(object):
-    """Class that accepts messages redirected from stdout/stderr."""
-    def __init__(self, logger, level):
-        self.logger = logger
-        self.level = level
-
-    def write(self, string):
-        import inspect
-        f = inspect.currentframe(1)
-        caller = f.f_code.co_name
-        self.logger.log(self.level, "%s: %s", caller, string)
 
 class dicompyler(wx.App):
     def OnInit(self):
@@ -857,7 +937,6 @@ class dicompyler(wx.App):
 
         dicompylerFrame = MainFrame(None, -1, "dicompyler", self.res)
         self.SetTopWindow(dicompylerFrame)
-        dicompylerFrame.Centre()
         dicompylerFrame.Show()
         return 1
 

@@ -2,8 +2,8 @@
 # -*- coding: ISO-8859-1 -*-
 # util.py
 """Several utility functions that don't really belong anywhere."""
-# Copyright (c) 2009-2011 Aditya Panchal
-# This file is part of dicompyler, relased under a BSD license.
+# Copyright (c) 2009-2012 Aditya Panchal
+# This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
 #    available at http://code.google.com/p/dicompyler/
 
@@ -33,19 +33,6 @@ def GetBasePluginsPath(resource):
         if (platform() == 'mac'):
             return os.path.join((os.path.join(get_main_dir(), '../PlugIns')), resource)
     return os.path.join((os.path.join(get_main_dir(), 'baseplugins')), resource)
-
-
-def GetExtraPluginsPath(resource):
-    """Return the specified item from the Extra plugins folder."""
-
-    if main_is_frozen():
-        if (platform() == 'mac'):
-            return os.path.join((os.path.join(get_main_dir(), '../ExtraPlugIns')), resource)
-    return os.path.join((os.path.join(get_main_dir(), 'extraplugins')), resource)
-
-
-
-
 
 # from http://www.py2exe.org/index.cgi/HowToDetermineIfRunningFromExe
 def main_is_frozen():

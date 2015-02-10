@@ -2,9 +2,9 @@
 # -*- coding: ISO-8859-1 -*-
 # dicomparser.py
 """Class that parses and returns formatted DICOM RT data."""
-# Copyright (c) 2009-2011 Aditya Panchal
+# Copyright (c) 2009-2012 Aditya Panchal
 # Copyright (c) 2009-2010 Roy Keyes
-# This file is part of dicompyler, relased under a BSD license.
+# This file is part of dicompyler, released under a BSD license.
 #    See the file license.txt included with this distribution, also
 #    available at http://code.google.com/p/dicompyler/
 
@@ -72,7 +72,10 @@ class DicomParser:
         else:
             desc='No description'
         study['description'] = desc
-        study['id'] = self.ds.StudyInstanceUID
+        # Don't assume that every dataset includes a study UID
+        study['id'] = self.ds.SeriesInstanceUID
+        if 'StudyInstanceUID' in self.ds:
+            study['id'] = self.ds.StudyInstanceUID
         
         return study
 
@@ -86,8 +89,12 @@ class DicomParser:
             desc='No description'
         series['description'] = desc
         series['id'] = self.ds.SeriesInstanceUID
-        series['study'] = self.ds.StudyInstanceUID
-        series['referenceframe'] = self.ds.FrameofReferenceUID
+        # Don't assume that every dataset includes a study UID
+        series['study'] = self.ds.SeriesInstanceUID
+        if 'StudyInstanceUID' in self.ds:
+            series['study'] = self.ds.StudyInstanceUID
+        if 'FrameofReferenceUID' in self.ds:
+            series['referenceframe'] = self.ds.FrameofReferenceUID
         
         return series
     
@@ -131,21 +138,43 @@ class DicomParser:
     def GetDemographics(self):
         """Return the patient demographics from a DICOM file."""
 
-        patient = {}
-        patient['name'] = str(self.ds.PatientsName).replace('^', ', ')
-        patient['id'] = self.ds.PatientID
-        if (self.ds.PatientsSex == 'M'):
-            patient['gender'] = 'Male'
-        elif (self.ds.PatientsSex == 'F'):
-            patient['gender'] = 'Female'
-        else:
-            patient['gender'] = 'Other'
-        if len(self.ds.PatientsBirthDate):
-            patient['dob'] = str(self.ds.PatientsBirthDate)
-        else:
-            patient['dob'] = 'None found'
+        # Set up some sensible defaults for demographics
+        patient = { 'name': 'N/A',
+                    'id':   'N/A',
+                    'dob':  'None Found',
+                    'gender': 'Other'}
+        if 'PatientsName' in self.ds:
+            patient['name'] = self.decode("PatientsName").replace('^', ', ')
+        if 'PatientID' in self.ds:
+            patient['id'] = self.ds.PatientID
+        if 'PatientsSex' in self.ds:
+            if (self.ds.PatientsSex == 'M'):
+                patient['gender'] = 'Male'
+            elif (self.ds.PatientsSex == 'F'):
+                patient['gender'] = 'Female'
+        if 'PatientsBirthDate' in self.ds:
+            if len(self.ds.PatientsBirthDate):
+                patient['dob'] = str(self.ds.PatientsBirthDate)
 
         return patient
+
+    def decode(self, tag):
+        """Apply the DICOM character encoding to the given tag."""
+
+        if not tag in self.ds:
+            return None
+        else:
+            oldval = self.ds.data_element(tag).value
+            try:
+                cs = self.ds.get('SpecificCharacterSet', "ISO_IR 6")
+                dicom.charset.decode(self.ds.data_element(tag), cs)
+            except:
+                logger.info("Could not decode character set for %s.", oldval)
+                return unicode(self.ds.data_element(tag).value, errors='replace')
+
+            newval = self.ds.data_element(tag).value
+            self.ds.data_element(tag).value = oldval
+            return newval
 
 ################################ Image Methods #################################
 
@@ -295,15 +324,29 @@ class DicomParser:
             for roi in self.ds.ROIContours:
                 number = roi.ReferencedROINumber
 
-                # Get the RGB color triplet for the current ROI
-                if roi.has_key('ROIDisplayColor'):
-                    structures[number]['color'] = np.array(roi.ROIDisplayColor, dtype=float)
-                # Otherwise generate a random color for the current ROI
-                else:
-                    structures[number]['color'] = np.array((
+                # Generate a random color for the current ROI
+                structures[number]['color'] = np.array((
                         random.randint(0,255),
                         random.randint(0,255),
                         random.randint(0,255)), dtype=float)
+                # Get the RGB color triplet for the current ROI if it exists
+                if roi.has_key('ROIDisplayColor'):
+                    # Make sure the color is not none
+                    if not (roi.ROIDisplayColor == None):
+                        color = roi.ROIDisplayColor
+                    # Otherwise decode values separated by forward slashes
+                    else:
+                        value = roi[0x3006,0x002a].repval
+                        color = value.strip("'").split("/")
+                    # Try to convert the detected value to a color triplet
+                    try:
+                        structures[number]['color'] = \
+                                np.array(color, dtype=float)
+                    # Otherwise fail and fallback on the random color
+                    except:
+                        logger.debug(
+                                "Unable to decode display color for ROI #%s",
+                                str(number))
 
                 planes = {}
                 if roi.has_key('Contours'):
@@ -323,8 +366,7 @@ class DicomParser:
 
                         # Add each plane to the planes dictionary of the current ROI
                         if plane.has_key('geometricType'):
-                           # z = ('%.2f' % plane['contourData'][0][2]).replace('-0','0') #the dicompyler primary
-                            z = '%.1f' % round(plane['contourData'][0][2],1)  #modified for xio4.6.4
+                            z = ('%.2f' % plane['contourData'][0][2]).replace('-0','0')
                             if not planes.has_key(z):
                                 planes[z] = []
                             planes[z].append(plane)
@@ -383,6 +425,11 @@ class DicomParser:
 
         if self.HasDVHs():
             for item in self.ds.DVHs:
+                # Make sure that the DVH has a referenced structure / ROI
+                if not 'DVHReferencedROIs' in item:
+                    continue
+                number = item.DVHReferencedROIs[0].ReferencedROINumber
+                logger.debug("Found DVH for ROI #%s", str(number))
                 dvhitem = {}
                 # If the DVH is differential, convert it to a cumulative DVH
                 if (self.ds.DVHs[0].DVHType == 'DIFFERENTIAL'):
@@ -412,7 +459,7 @@ class DicomParser:
                 else:
                     # save the mean dose as -1 so we can calculate it later
                     dvhitem['mean'] = -1
-                self.dvhs[item.DVHReferencedROIs[0].ReferencedROINumber] = dvhitem
+                self.dvhs[number] = dvhitem
 
         return self.dvhs
 
@@ -467,9 +514,11 @@ class DicomParser:
             z = float(z)
             # Get the initial dose grid position (z) in patient coordinates
             imagepatpos = self.ds.ImagePositionPatient[2]
+            orientation = self.ds.ImageOrientationPatient[0]
             # Add the position to the offset vector to determine the
             # z coordinate of each dose plane
-            planes = np.array(self.ds.GridFrameOffsetVector)+imagepatpos
+            planes = orientation * np.array(self.ds.GridFrameOffsetVector) + \
+                    imagepatpos
             frame = -1
             # Check to see if the requested plane exists in the array
             if (np.amin(np.fabs(planes - z)) < threshold):
@@ -482,13 +531,13 @@ class DicomParser:
                 return []
             # The requested plane was not found, so interpolate between planes
             else:
-                frame = np.argmin(np.fabs(planes - z))
-                if (planes[frame] - z > 0):
-                    ub = frame
-                    lb = frame-1
-                elif (planes[frame] - z < 0):
-                    ub = frame+1
-                    lb = frame
+                # Determine the upper and lower bounds
+                umin = np.fabs(planes - z)
+                ub = np.argmin(umin)
+                lmin = umin.copy()
+                # Change the minimum value to the max so we can find the 2nd min
+                lmin[ub] = np.amax(umin)
+                lb = np.argmin(lmin)
                 # Fractional distance of dose plane between upper and lower bound
                 fz = (z - planes[lb]) / (planes[ub] - planes[lb])
                 plane = self.InterpolateDosePlanes(
@@ -562,6 +611,20 @@ class DicomParser:
 
         return data
 
+    def GetReferencedBeamNumber(self):
+        """Return the referenced beam number (if it exists) from RT Dose."""
+
+        beam = None
+        if "ReferencedRTPlans" in self.ds:
+            rp = self.ds.ReferencedRTPlans[0]
+            if "ReferencedFractionGroups" in rp:
+                rf = rp.ReferencedFractionGroups[0]
+                if "ReferencedBeams" in rf:
+                    if "ReferencedBeamNumber" in rf.ReferencedBeams[0]:
+                        beam = rf.ReferencedBeams[0].ReferencedBeamNumber
+
+        return beam
+
 ############################### RT Plan Methods ###############################
 
     def GetPlan(self):
@@ -577,7 +640,9 @@ class DicomParser:
         if "DoseReferences" in self.ds:
             for item in self.ds.DoseReferences:
                 if item.DoseReferenceStructureType == 'SITE':
-                    self.plan['name'] = item.DoseReferenceDescription
+                    self.plan['name'] = "N/A"
+                    if "DoseReferenceDescription" in item:
+                        self.plan['name'] = item.DoseReferenceDescription
                     if item.has_key('TargetPrescriptionDose'):
                         rxdose = item.TargetPrescriptionDose * 100
                         if (rxdose > self.plan['rxdose']):
@@ -585,5 +650,44 @@ class DicomParser:
                 elif item.DoseReferenceStructureType == 'VOLUME':
                     if 'TargetPrescriptionDose' in item:
                         self.plan['rxdose'] = item.TargetPrescriptionDose * 100
-
+        if (("FractionGroups" in self.ds) and (self.plan['rxdose'] == 0)):
+            fg = self.ds.FractionGroups[0]
+            if ("ReferencedBeams" in fg) and ("NumberofFractionsPlanned" in fg):
+                beams = fg.ReferencedBeams
+                fx = fg.NumberofFractionsPlanned
+                for beam in beams:
+                    if "BeamDose" in beam:
+                        self.plan['rxdose'] += beam.BeamDose * fx * 100
+        self.plan['rxdose'] = int(self.plan['rxdose'])
         return self.plan
+
+    def GetReferencedBeamsInFraction(self, fx = 0):
+        """Return the referenced beams from the specified fraction."""
+
+        beams = {}
+        if ("Beams" in self.ds):
+            bdict = self.ds.Beams
+        elif ("IonBeams" in self.ds):
+            bdict = self.ds.IonBeams
+        else:
+            return beams
+
+        # Obtain the beam information
+        for b in bdict:
+            beam = {}
+            beam['name'] = b.BeamName if "BeamName" in b else ""
+            beam['description'] = b.BeamDescription \
+                if "BeamDescription" in b else ""
+            beams[b.BeamNumber] = beam
+
+        # Obtain the referenced beam info from the fraction info
+        if ("FractionGroups" in self.ds):
+            fg = self.ds.FractionGroups[fx]
+            if ("ReferencedBeams" in fg):
+                rb = fg.ReferencedBeams
+                nfx = fg.NumberofFractionsPlanned
+                for b in rb:
+                    if "BeamDose" in b:
+                        beams[b.ReferencedBeamNumber]['dose'] = \
+                            b.BeamDose * nfx * 100
+        return beams

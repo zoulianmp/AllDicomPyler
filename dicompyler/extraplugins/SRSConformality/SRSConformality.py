@@ -9,7 +9,8 @@ from wx.xrc import XmlResource, XRCCTRL, XRCID
 from wx.lib.pubsub import Publisher as pub
 #from matplotlib import _cntr as cntr
 #from matplotlib import __version__ as mplversion
-import matplotlib.nxutils as nx
+from matplotlib.path import Path
+
 import numpy.ma as ma
 import numpy as np
 #from dicompyler import dvhdata
@@ -249,8 +250,11 @@ def calculate_contour_areas(plane):
 def get_contour_mask(doselut, dosegridpoints, contour):
     """Get the mask for the contour with respect to the dose plane."""
 
-    grid = nx.points_inside_poly(dosegridpoints, contour)
+    path = Path(contour)
+    grid = path.contains_point(dosegridpoints)
     grid = grid.reshape((len(doselut[1]), len(doselut[0])))
+    
+   
 
     return grid
 
