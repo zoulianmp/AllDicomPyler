@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<resource>
+  <object class="wxDialog" name="MCSIMExportDialog" subclass="mcsimexport.mcsimexport.MCSIMExportDialog">
+    <object class="wxBoxSizer">
+      <orient>wxVERTICAL</orient>
+      <object class="sizeritem">
+        <object class="wxStaticBoxSizer">
+          <object class="sizeritem">
+            <object class="wxBoxSizer">
+              <object class="sizeritem">
+                <object class="wxTextCtrl" name="txtExportFolder">
+                  <style>wxTE_READONLY</style>
+                </object>
+                <option>1</option>
+                <flag>wxALIGN_LEFT|wxALIGN_CENTRE_VERTICAL</flag>
+              </object>
+              <object class="spacer">
+                <size>5,0</size>
+              </object>
+              <object class="sizeritem">
+                <object class="wxButton" name="btnFolderBrowse">
+                  <label>&amp;Browse...</label>
+                </object>
+              </object>
+            </object>
+            <flag>wxALL|wxEXPAND|wxALIGN_CENTRE</flag>
+          </object>
+          <label>Folder for Exported MCSIM Files</label>
+          <orient>wxVERTICAL</orient>
+        </object>
+        <flag>wxALL|wxEXPAND|wxALIGN_CENTRE</flag>
+        <border>3</border>
+      </object>
+      <object class="spacer">
+        <size>0,5</size>
+      </object>
+      <object class="sizeritem">
+        <object class="wxStaticBoxSizer">
+          <object class="sizeritem">
+            <object class="wxBoxSizer">
+              <object class="sizeritem">
+                <object class="wxTextCtrl" name="txtTable">
+                </object>
+                <option>1</option>
+                <flag>wxALIGN_LEFT|wxALIGN_CENTRE_VERTICAL</flag>
+              </object>
+              <object class="spacer">
+                <size>5,0</size>
+              </object>
+			  </object>
+            <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+			</object>
+			<object class="spacer">
+                <size>5,5</size>
+            </object>
+		    <object class="sizeritem">
+              <object class="wxCheckBox" name="checkMakePhantom">
+                <label>Convert CT to EGS Phantom (requires NRC ctcreate)</label>
+                <checked>1</checked>
+              </object>
+            </object>
+          <label>Enter Y Axis Dicom Coordinate for Table Removal:</label>
+          <orient>wxVERTICAL</orient>
+		  </object>
+        <flag>wxALL|wxEXPAND|wxALIGN_LEFT</flag>
+        <border>3</border>
+      </object>
+	  <object class="sizeritem">
+        <object class="wxStaticBoxSizer">
+          <object class="sizeritem">
+            <object class="wxBoxSizer">
+              <object class="sizeritem">
+                <object class="wxTextCtrl" name="txtParameters">
+                  <style>wxTE_READONLY|wxTE_MULTILINE</style>
+                </object>
+                <option>1</option>
+                <flag>wxALIGN_LEFT|wxALIGN_CENTRE_VERTICAL</flag>
+              </object>
+            </object>
+            <flag>wxALL|wxEXPAND|wxALIGN_CENTER</flag>
+          </object>
+          <label>Plan Parameters</label>
+          <orient>wxVERTICAL</orient>
+		</object>
+        <flag>wxALL|wxEXPAND|wxALIGN_CENTRE</flag>
+        <border>3</border>
+      </object>
+      <object class="sizeritem">
+        <object class="wxStdDialogButtonSizer">
+          <object class="button">
+            <object class="wxButton" name="wxID_CANCEL">
+              <label/>
+              <label>&amp;Cancel</label>
+            </object>
+          </object>
+          <object class="button">
+            <object class="wxButton" name="wxID_OK">
+              <label>Export</label>
+              <default>1</default>
+              <focused>1</focused>
+            </object>
+          </object>
+        </object>
+        <flag>wxALL|wxEXPAND|wxALIGN_CENTRE</flag>
+        <border>3</border>
+      </object>
+      <object class="spacer">
+        <size>0,5</size>
+      </object>
+	  <object class="spacer">
+        <size>500,50</size>
+      </object>
+    </object>
+    <title>Export DICOM RT Plan Data to MCSIM Format</title>
+    <centered>1</centered>
+    <style>wxDEFAULT_DIALOG_STYLE</style>
+  </object>
+</resource>
