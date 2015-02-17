@@ -7,7 +7,8 @@ except ImportError:
 import wx
 from wx.lib.pubsub import Publisher as pub
 import numpy as np
-import pydicom as dicom
+#import pydicom as dicom
+import dicom
 
 import matplotlib.mlab as mlab
 import numpy.testing as npt

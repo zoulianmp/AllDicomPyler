@@ -13,7 +13,8 @@ logger = logging.getLogger('dicompyler.quickimport')
 import wx
 from wx.lib.pubsub import Publisher as pub
 from dicompyler import dicomparser, util
-import pydicom as dicom
+#import pydicom as dicom
+import dicom
 
 def pluginProperties():
     """Properties of the plugin."""

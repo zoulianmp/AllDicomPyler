@@ -12,8 +12,9 @@ dose scoring with the GmPSPrinter3ddose or GmPSPrinterG4cout printers.
 #Requires wxPython, pyDicom, numpy, PIL, dicompyler.
 import wx
 from   wx.lib.pubsub import Publisher as pub
-import pydicom
-from   pydicom.dataset import Dataset, FileDataset
+#import pydicom as dicom
+import dicom  
+from   dicom.dataset import Dataset, FileDataset
 import os
 import numpy as np
 from   PIL import Image

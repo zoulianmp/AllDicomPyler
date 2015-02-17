@@ -415,7 +415,7 @@ class MainFrame(wx.Frame):
 
     def LoadPatientDataThread(self, parent, ptdata, progressFunc, updateFunc):
         """Thread to load the patient data."""
-
+       
         # Call the progress function to update the gui
         wx.CallAfter(progressFunc, 0, 0, 'Processing patient data...')
         patient = {}
@@ -424,7 +424,25 @@ class MainFrame(wx.Frame):
             patient.update(dp(ptdata.values()[0]).GetDemographics())
         if ptdata.has_key('rtss'):
             wx.CallAfter(progressFunc, 20, 100, 'Processing RT Structure Set...')
+            
+            print #in the main.py #428 LoadPatientDataThread()"
+            print ptdata['rtss'].SOPClassUID
+            
+            pss = dp(ptdata['rtss'])
+            
+            
+            
+          
+            print "pss.GetStructureInfo(0)", pss.GetStructureInfo()    
+            
+            
             patient['structures'] = dp(ptdata['rtss']).GetStructures()
+            print "*****************************************"     
+            print "Strudtures:"
+            print "*****************************************"
+            
+            print patient['structures']
+            
         if ptdata.has_key('rtplan'):
             wx.CallAfter(progressFunc, 40, 100, 'Processing RT Plan...')
             patient['plan'] = dp(ptdata['rtplan']).GetPlan()

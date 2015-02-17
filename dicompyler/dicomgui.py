@@ -711,7 +711,13 @@ class DicomImporterDialog(wx.Dialog):
                     self.patient['images'] = []
                 self.patient['images'].append(dp.ds)
             elif (dp.ds.Modality in ['RTSTRUCT']):
-                self.patient['rtss'] = dp.ds
+                self.patient['rtss'] = dp.ds        
+                
+                print "in the dicomgui.py #716, GetPatientData() :"
+                print "self.patient['rtss'].SOPClassUID   :"        
+                print self.patient['rtss'].SOPClassUID        
+             
+                               
             elif (dp.ds.Modality in ['RTPLAN']):
                 self.patient['rtplan'] = dp.ds
             elif (dp.ds.Modality in ['RTDOSE']):
@@ -779,6 +785,7 @@ class DicomImporterDialog(wx.Dialog):
                             sortedimages.append(image)
                     elif (slice == image.data_element(sort).value):
                         sortedimages.append(image)
+                        
 
             # Save the images back to the patient dictionary
             self.patient['images'] = sortedimages
@@ -786,9 +793,13 @@ class DicomImporterDialog(wx.Dialog):
 
     def GetPatient(self):
         """Return the patient data from the DICOM importer dialog."""
-
+        
+        print "in the dicomgui.py #794, GetPatient() :"
+        print "self.patient['rtss'].SOPClassUID :"        
+        print self.patient['rtss'].SOPClassUID      
+                
         return self.patient
-
+        
     def OnOK(self, evt):
         """Return the patient data if the patient is selected or the button
             is pressed."""

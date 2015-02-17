@@ -11,7 +11,8 @@
 import logging
 logger = logging.getLogger('dicompyler.dicomparser')
 import numpy as np
-import pydicom as dicom
+#import pydicom as dicom
+import dicom
 import random
 from PIL import Image
 from math import pow, sqrt
@@ -302,10 +303,11 @@ class DicomParser:
         # Determine whether this is RT Structure Set file
         if not (self.GetSOPClassUID() == 'rtss'):
             return structures
-
+        
+       
         # Locate the name and number of each ROI
-        if self.ds.has_key('StructureSetROIs'):
-            for item in self.ds.StructureSetROIs:
+        if 'StructureSetROISequence' in self.ds :       
+            for item in self.ds.StructureSetROISequence:
                 data = {}
                 number = item.ROINumber
                 data['id'] = number
@@ -314,14 +316,14 @@ class DicomParser:
                 structures[number] = data
 
         # Determine the type of each structure (PTV, organ, external, etc)
-        if self.ds.has_key('RTROIObservations'):
-            for item in self.ds.RTROIObservations:
+        if 'RTROIObservationsSequence' in self.ds :
+            for item in self.ds.RTROIObservationsSequence:
                 number = item.ReferencedROINumber
                 structures[number]['RTROIType'] = item.RTROIInterpretedType
 
         # The coordinate data of each ROI is stored within ROIContourSequence
-        if self.ds.has_key('ROIContours'):
-            for roi in self.ds.ROIContours:
+        if 'ROIContourSequence' in self.ds :
+            for roi in self.ds.ROIContourSequence:
                 number = roi.ReferencedROINumber
 
                 # Generate a random color for the current ROI
@@ -330,7 +332,7 @@ class DicomParser:
                         random.randint(0,255),
                         random.randint(0,255)), dtype=float)
                 # Get the RGB color triplet for the current ROI if it exists
-                if roi.has_key('ROIDisplayColor'):
+                if 'ROIDisplayColor' in roi :
                     # Make sure the color is not none
                     if not (roi.ROIDisplayColor == None):
                         color = roi.ROIDisplayColor
@@ -349,9 +351,9 @@ class DicomParser:
                                 str(number))
 
                 planes = {}
-                if roi.has_key('Contours'):
+                if 'ContourSequence' in roi :
                     # Locate the contour sequence for each referenced ROI
-                    for contour in roi.Contours:
+                    for contour in roi.ContourSequence:
                         # For each plane, initialize a new plane dictionary
                         plane = {}
 
@@ -361,8 +363,8 @@ class DicomParser:
                         plane['contourData'] = self.GetContourPoints(contour.ContourData)
 
                         # Each plane which coincides with a image slice will have a unique ID
-                        if contour.has_key('ContourImages'):
-                            plane['UID'] = contour.ContourImages[0].ReferencedSOPInstanceUID
+                        if 'ContourImageSequence' in contour :
+                            plane['UID'] = contour.ContourImageSequence[0].ReferencedSOPInstanceUID
 
                         # Add each plane to the planes dictionary of the current ROI
                         if plane.has_key('geometricType'):

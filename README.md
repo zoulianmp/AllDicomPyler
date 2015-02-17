@@ -8,4 +8,5 @@ Provide the Running from sources.
 Dependency LIBS:
 
 matplotlib  1.4.2
-pydicom     1.0Dev
+pydicom     0.9.9
+
