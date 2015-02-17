@@ -712,12 +712,7 @@ class DicomImporterDialog(wx.Dialog):
                 self.patient['images'].append(dp.ds)
             elif (dp.ds.Modality in ['RTSTRUCT']):
                 self.patient['rtss'] = dp.ds        
-                
-                print "in the dicomgui.py #716, GetPatientData() :"
-                print "self.patient['rtss'].SOPClassUID   :"        
-                print self.patient['rtss'].SOPClassUID        
-             
-                               
+                              
             elif (dp.ds.Modality in ['RTPLAN']):
                 self.patient['rtplan'] = dp.ds
             elif (dp.ds.Modality in ['RTDOSE']):
@@ -793,10 +788,6 @@ class DicomImporterDialog(wx.Dialog):
 
     def GetPatient(self):
         """Return the patient data from the DICOM importer dialog."""
-        
-        print "in the dicomgui.py #794, GetPatient() :"
-        print "self.patient['rtss'].SOPClassUID :"        
-        print self.patient['rtss'].SOPClassUID      
                 
         return self.patient
         
